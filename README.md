@@ -62,12 +62,7 @@ If you get stuck, ask an organizer. Draft PRs are welcome.
 ### Workflow (AI Version)
 
 ```bash
-PROJECT="cursed-toaster"
-cp -r projects/_template "projects/$PROJECT"
-$EDITOR "projects/$PROJECT/README.md"
-git add "projects/$PROJECT"
-git commit -m "Add $PROJECT submission"
-git push -u origin HEAD
+USER="<your-username>" PROJECT="cursed-toaster" && git clone "https://github.com/$USER/SLOPATHON.git" && cd SLOPATHON && git remote add upstream https://github.com/HACK-OPS-KA/SLOPATHON.git && git fetch upstream && git checkout -b "submission/$PROJECT" upstream/main && cp -r projects/_template "projects/$PROJECT" && ${EDITOR:-nano} "projects/$PROJECT/README.md" && git add "projects/$PROJECT" && git commit -m "Add $PROJECT submission" && git push -u origin HEAD
 ```
 
 ---
