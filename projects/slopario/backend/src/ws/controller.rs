@@ -83,7 +83,7 @@ pub async fn handle_controller(mut socket: WebSocket, session: Arc<Mutex<Session
     while let Some(Ok(msg)) = ws_receiver.next().await {
         match msg {
             Message::Text(text) => {
-                trace!("Received text from controller: {}", text);
+                info!("Controller {} sent text: {}", player_id, text);
                 if let Ok(input) = serde_json::from_str::<ControllerInput>(&text) {
                     let session = session.lock().await;
                     for player in &session.players {
@@ -104,15 +104,21 @@ pub async fn handle_controller(mut socket: WebSocket, session: Arc<Mutex<Session
                         }
                     }
                 } else {
-                    warn!("Failed to parse controller input: {}", text);
+                    warn!("Controller {} sent unparseable JSON: {}", player_id, text);
                 }
             }
-            Message::Close(_) => {
-                info!("Controller {} disconnected", player_id);
-                break;
+            Message::Binary(data) => {
+                info!("Controller {} sent binary data ({} bytes)", player_id, data.len());
             }
-            _ => {
-                trace!("Ignored message from controller: {:?}", msg);
+            Message::Ping(data) => {
+                trace!("Controller {} sent ping ({} bytes)", player_id, data.len());
+            }
+            Message::Pong(data) => {
+                trace!("Controller {} sent pong ({} bytes)", player_id, data.len());
+            }
+            Message::Close(frame) => {
+                info!("Controller {} disconnected: {:?}", player_id, frame);
+                break;
             }
         }
     }

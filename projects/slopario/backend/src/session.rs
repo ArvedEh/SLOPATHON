@@ -3,8 +3,8 @@ use std::sync::Arc;
 use tokio::sync::{Mutex, broadcast, mpsc};
 use uuid::Uuid;
 
-use crate::food::{Food, create_mock_food};
-use crate::player::{Player, create_mock_players};
+use crate::food::Food;
+use crate::player::Player;
 use crate::game::GameState;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -30,11 +30,8 @@ pub struct Session {
 
 impl Session {
     pub fn new(id: String, map_width: u32, map_height: u32) -> Self {
-        let mock_players = create_mock_players();
-        let players = mock_players
-            .into_iter()
-            .map(|p| Arc::new(Mutex::new(p)))
-            .collect();
+        // Start with no players – they are added dynamically when controllers connect
+        let players: Vec<Arc<Mutex<Player>>> = Vec::new();
 
         let food_count = (map_width * map_height / 50000).max(20) as usize;
         let mut food = Vec::with_capacity(food_count);

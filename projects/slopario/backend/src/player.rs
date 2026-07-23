@@ -32,31 +32,3 @@ impl Player {
         }
     }
 }
-
-/// Erzeugt Mock-Spieler für Demo-Zwecke
-pub fn create_mock_players() -> Vec<Player> {
-    let colors = [
-        "#ff0000",
-        "#00ff00",
-        "#0000ff",
-        "#ffff00",
-        "#ff00ff",
-    ];
-
-    let positions = [
-        (200.0, 200.0),
-        (600.0, 200.0),
-        (400.0, 500.0),
-        (200.0, 600.0),
-        (700.0, 500.0),
-    ];
-
-    colors
-        .iter()
-        .enumerate()
-        .map(|(i, &color)| {
-            let (x, y) = positions[i];
-            Player::new(format!("player_{}", i + 1), x, y, color.to_string())
-        })
-        .collect()
-}

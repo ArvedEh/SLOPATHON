@@ -36,7 +36,7 @@ pub async fn handle_display(
     loop {
         match socket.next().await {
             Some(Ok(Message::Text(text))) => {
-                trace!("Received message from display: {}", text);
+                info!("Display sent text: {}", text);
                 if text.trim() == "start" {
                     info!("Display started the game");
                     let mut session = session.lock().await;
@@ -46,11 +46,27 @@ pub async fn handle_display(
                     break;
                 }
             }
-            Some(Ok(Message::Close(_))) | None => {
-                warn!("Display disconnected before sending 'start'");
+            Some(Ok(Message::Binary(data))) => {
+                info!("Display sent binary data ({} bytes)", data.len());
+            }
+            Some(Ok(Message::Ping(data))) => {
+                trace!("Display sent ping ({} bytes)", data.len());
+            }
+            Some(Ok(Message::Pong(data))) => {
+                trace!("Display sent pong ({} bytes)", data.len());
+            }
+            Some(Ok(Message::Close(frame))) => {
+                warn!("Display disconnected before sending 'start': {:?}", frame);
                 return;
             }
-            _ => {}
+            Some(Err(e)) => {
+                warn!("Display WebSocket error before 'start': {}", e);
+                return;
+            }
+            None => {
+                warn!("Display connection closed before sending 'start'");
+                return;
+            }
         }
     }
 
@@ -76,11 +92,30 @@ pub async fn handle_display(
             }
             msg = socket.next() => {
                 match msg {
-                    Some(Ok(Message::Close(_))) | None => {
-                        info!("Display disconnected from game stream");
+                    Some(Ok(Message::Text(text))) => {
+                        info!("Display sent text during game: {}", text);
+                    }
+                    Some(Ok(Message::Binary(data))) => {
+                        info!("Display sent binary during game ({} bytes)", data.len());
+                    }
+                    Some(Ok(Message::Ping(data))) => {
+                        trace!("Display sent ping during game ({} bytes)", data.len());
+                    }
+                    Some(Ok(Message::Pong(data))) => {
+                        trace!("Display sent pong during game ({} bytes)", data.len());
+                    }
+                    Some(Ok(Message::Close(frame))) => {
+                        info!("Display disconnected from game stream: {:?}", frame);
                         break;
                     }
-                    _ => {}
+                    Some(Err(e)) => {
+                        warn!("Display WebSocket error during game: {}", e);
+                        break;
+                    }
+                    None => {
+                        info!("Display connection closed during game stream");
+                        break;
+                    }
                 }
             }
         }
