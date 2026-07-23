@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>SLOPAR.IO</title>
+<link
+rel="stylesheet"
+href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.green.min.css"
+>
+<style>
+body {
+margin: 0px;
+display: flex;
+justify-content: center;
+align-items: center;
+flex-direction: column;
+min-height: 100vh;
+/* Prevent the whole page from scrolling/bouncing while dragging the stick on mobile */
+overscroll-behavior: none;
+}
+
+.joystick-zone {
+position: relative;
+width: 45vw;
+height: 45vw;
+max-width: 220px;
+max-height: 220px;
+min-width: 140px;
+min-height: 140px;
+margin: 2rem 0;
+touch-action: none; /* stops the browser from scrolling/zooming on drag */
+-webkit-user-select: none;
+user-select: none;
+}
+
+.joystick-base {
+position: absolute;
+inset: 0;
+border-radius: 50%;
+background: color-mix(in srgb, var(--pico-primary) 12%, var(--pico-card-background-color));
+border: 2px solid color-mix(in srgb, var(--pico-primary) 40%, transparent);
+box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.joystick-stick {
+position: absolute;
+top: 50%;
+left: 50%;
+width: 42%;
+height: 42%;
+border-radius: 50%;
+background: var(--pico-primary);
+box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+/* translate(-50%,-50%) recenters the stick, then we add the drag offset */
+transform: translate(-50%, -50%);
+transition: transform 0.08s linear;
+touch-action: none;
+}
+
+.joystick-stick.dragging {
+transition: none;
+}
+.hidden {
+    display: none !important;
+}
+</style>
+</head>
+<body>
+<div>
+<h1>SLOPAR.IO</h1>
+</div>
+<div id="state-not-connected">
+    <h2>Waiting for connection</h2>
+</div>
+<div id="state-lobby">
+    <h2>Connected! Waiting for host to start!</h2>
+</div>
+<div id="state-ingame">
+    <div>
+        <button onclick="randomizeColor()">Randomize Color</button>
+    </div>
+    <div>
+        <div class="joystick-zone" id="joystickZone">
+        <div class="joystick-base"></div>
+        <div class="joystick-stick" id="joystickStick"></div>
+    </div>
+</div>
+
+<script>
+(function () {
+  const zone = document.getElementById('joystickZone');
+  const stick = document.getElementById('joystickStick');
+
+  const websocket = new WebSocket(window.location.href.replace("http","ws"));
+  websocket.addEventListener("open", () => {
+    console.log("CONNECTED");
+  });
+
+  websocket.addEventListener("error", (e) => {
+    console.log(`ERROR`, e);
+  });
+
+  websocket.addEventListener("message", (e) => {
+    changeState(e.data)
+  });
+
+  const states = ["state-not-connected", "state-lobby", "state-ingame"]
+
+  function changeState(newState) {
+    for(let state of states) {
+        document.getElementById("state-"+state).classList.add("hidden")
+    }
+    document.getElementById("state-"+state).classList.remove("hidden")
+  }
+
+
+  let activePointerId = null;
+  let centerX = 0;
+  let centerY = 0;
+  let maxRadius = 0;
+
+  // The event handler that gets called whenever the joystick position changes.
+  // dx and dy are normalized to the range [-1, 1], relative to the joystick's
+  // max travel radius. (0, 0) is centered/released. -y is up, +y is down.
+  function onJoystickMove(dx, dy) {
+    websocket.send(JSON.stringify({
+        direction: {
+            x: dy,
+            y: dy
+        }
+    }))
+  }
+
+  function randomizeColor() {
+    websocket.send(JSON.stringify({
+        "switch_color": true,
+    }))
+  }
+
+  function updateGeometry() {
+    const rect = zone.getBoundingClientRect();
+    centerX = rect.left + rect.width / 2;
+    centerY = rect.top + rect.height / 2;
+    // Stick can travel from the center out to the edge of the base,
+    // minus its own radius so it stays visually inside the base.
+    maxRadius = rect.width / 2 - (stick.offsetWidth / 2);
+  }
+
+  function setStickPosition(dx, dy) {
+    const offsetX = dx * maxRadius;
+    const offsetY = dy * maxRadius;
+    stick.style.transform = `translate(calc(-50% + ${offsetX}px), calc(-50% + ${offsetY}px))`;
+  }
+
+  function resetStick() {
+    stick.classList.remove('dragging');
+    stick.style.transform = 'translate(-50%, -50%)';
+    onJoystickMove(0, 0);
+  }
+
+  function handlePointerMove(clientX, clientY) {
+    let rawDx = clientX - centerX;
+    let rawDy = clientY - centerY;
+
+    const distance = Math.sqrt(rawDx * rawDx + rawDy * rawDy);
+    if (distance > maxRadius) {
+      const scale = maxRadius / distance;
+      rawDx *= scale;
+      rawDy *= scale;
+    }
+
+    setStickPosition(rawDx / maxRadius, rawDy / maxRadius);
+    onJoystickMove(rawDx / maxRadius, rawDy / maxRadius);
+  }
+
+  zone.addEventListener('pointerdown', (e) => {
+    if (activePointerId !== null) return; // ignore multi-touch on the stick
+    activePointerId = e.pointerId;
+    zone.setPointerCapture(activePointerId);
+    updateGeometry();
+    stick.classList.add('dragging');
+    handlePointerMove(e.clientX, e.clientY);
+  });
+
+  zone.addEventListener('pointermove', (e) => {
+    if (e.pointerId !== activePointerId) return;
+    handlePointerMove(e.clientX, e.clientY);
+  });
+
+  function endDrag(e) {
+    if (e.pointerId !== activePointerId) return;
+    zone.releasePointerCapture(activePointerId);
+    activePointerId = null;
+    resetStick();
+  }
+
+  zone.addEventListener('pointerup', endDrag);
+  zone.addEventListener('pointercancel', endDrag);
+
+  window.addEventListener('resize', updateGeometry);
+  updateGeometry();
+})();
+</script>
+</body>
+</html>
