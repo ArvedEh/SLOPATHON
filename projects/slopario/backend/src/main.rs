@@ -13,7 +13,7 @@ use axum::{
         Path, Query, State,
         ws::{WebSocket, WebSocketUpgrade},
     },
-    response::IntoResponse,
+    response::{Html, IntoResponse},
     routing::get,
 };
 use serde::{Deserialize, Serialize};
@@ -27,6 +27,10 @@ use crate::ws::controller::handle_controller;
 use crate::ws::display::handle_display;
 
 const PORT: u16 = 6969;
+
+// Embed the frontend HTML files into the binary at compile time
+const HOST_HTML: &str = include_str!("../../host-frontend/index.html");
+const CLIENT_HTML: &str = include_str!("../../client-frontend/index.html");
 
 #[derive(Debug, Deserialize)]
 pub struct CreateSessionQuery {
@@ -44,6 +48,16 @@ struct CreateSessionResponse {
 #[derive(Clone)]
 struct AppState {
     sessions: SessionMap,
+}
+
+/// Serviert das Host-Frontend (Display/Lobby) unter /host
+async fn serve_host() -> Html<&'static str> {
+    Html(HOST_HTML)
+}
+
+/// Serviert das Client-Frontend (Controller/Joystick) unter /client
+async fn serve_client() -> Html<&'static str> {
+    Html(CLIENT_HTML)
 }
 
 /// Erstellt eine neue Session und gibt die ID zurück.
@@ -168,6 +182,8 @@ async fn main() {
         .route("/api/session", get(create_session))
         .route("/ws/controller/{session_id}", get(ws_controller_handler))
         .route("/ws/view/{session_id}", get(ws_display_handler))
+        .route("/host", get(serve_host))
+        .route("/client", get(serve_client))
         .layer(CorsLayer::permissive())
         .with_state(state);
 
@@ -178,6 +194,8 @@ async fn main() {
 
     tracing::info!("Server running on http://{}", addr);
     tracing::info!("Endpoints:");
+    tracing::info!("  GET /host                                  - Host/Lobby frontend");
+    tracing::info!("  GET /client                                - Client/Controller frontend");
     tracing::info!("  GET /api/session[?width=1920&height=1080] - Create session");
     tracing::info!("  GET /ws/controller/{{session_id}}          - Controller WebSocket");
     tracing::info!("  GET /ws/view/{{session_id}}                - Display WebSocket");
