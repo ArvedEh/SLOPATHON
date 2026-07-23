@@ -421,7 +421,7 @@
 
         function getClientUrl(sessionId) {
             const host = window.location.host || 'localhost:6969';
-            return `${window.location.protocol}//${host}/client/?s=${encodeURIComponent(sessionId)}`;
+            return `${window.location.protocol}//${host}/client?s=${encodeURIComponent(sessionId)}`;
         }
 
         function setStatus(message, isError = false) {
