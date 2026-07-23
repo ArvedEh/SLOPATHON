@@ -115,9 +115,9 @@ transition: none;
 
   function changeState(newState) {
     for(let state of states) {
-        document.getElementById("state-"+state).classList.add("hidden")
+        document.getElementById(state).classList.add("hidden")
     }
-    document.getElementById("state-"+state).classList.remove("hidden")
+    document.getElementById(state).classList.remove("hidden")
   }
 
 
@@ -136,6 +136,7 @@ transition: none;
             y: dy
         }
     }))
+    console.log(dx, dy)
   }
 
   function randomizeColor() {
