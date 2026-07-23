@@ -29,8 +29,8 @@ use crate::ws::display::handle_display;
 const PORT: u16 = 6969;
 
 // Embed the frontend HTML files into the binary at compile time
-const HOST_HTML: &str = include_str!("../../host-frontend/index.html");
-const CLIENT_HTML: &str = include_str!("../../client-frontend/index.html");
+const HOST_HTML: &str = include_str!("../host-frontend/index.html");
+const CLIENT_HTML: &str = include_str!("../client-frontend/index.html");
 
 #[derive(Debug, Deserialize)]
 pub struct CreateSessionQuery {
