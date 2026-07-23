@@ -123,7 +123,7 @@ pub fn update(session: &mut Session, dt: f64) {
                 let dy = player.y - food_y;
                 let dist = (dx * dx + dy * dy).sqrt();
                 if dist < player.size / 2.0 {
-                    player.size = (player.size * player.size + food_size * food_size).sqrt();
+                    player.size += food_size * 0.5;
                     player.score += 1;
                     break;
                 }
@@ -198,7 +198,7 @@ pub fn update(session: &mut Session, dt: f64) {
                     pj_mutex.alive = false;
                 }
                 if let Ok(mut pi_mutex) = session.players[pi.index].try_lock() {
-                    pi_mutex.size = (pi_mutex.size * pi_mutex.size + pj.size * pj.size).sqrt();
+                    pi_mutex.size += pj.size * 0.5;
                     pi_mutex.score += pj.score + 1;
                 }
                 dead_players.push(pj.id.clone());
@@ -208,7 +208,7 @@ pub fn update(session: &mut Session, dt: f64) {
                     pi_mutex.alive = false;
                 }
                 if let Ok(mut pj_mutex) = session.players[pj.index].try_lock() {
-                    pj_mutex.size = (pj_mutex.size * pj_mutex.size + pi.size * pi.size).sqrt();
+                    pj_mutex.size += pi.size * 0.5;
                     pj_mutex.score += pi.score + 1;
                 }
                 dead_players.push(pi.id.clone());
@@ -554,11 +554,13 @@ mod tests {
         run_ticks(&mut session, 1, 1.0 / 30.0);
 
         let p1_locked = session.players[0].try_lock().unwrap();
-        // New size = sqrt(50^2 + 10^2) = sqrt(2600) ≈ 50.99
-        let expected_size = (50.0_f64 * 50.0 + 10.0 * 10.0).sqrt();
+        // New size = 50 + 10 * 0.5 = 55.0
+        let expected_size = 55.0;
         assert!(
             (p1_locked.size - expected_size).abs() < 0.1,
-            "Big player should absorb small player's mass"
+            "Big player should absorb small player's mass (expected {}, got {})",
+            expected_size,
+            p1_locked.size
         );
         // Score: 5 (own) + 2 (victim's) + 1 (kill bonus) = 8
         assert_eq!(p1_locked.score, 8, "Player should gain victim's score + 1");
