@@ -3,8 +3,8 @@ FROM rust:slim
 WORKDIR /app
 
 # Copy manifests first for better layer caching
-COPY project/slopario/backend/Cargo.toml project/slopario/backend/Cargo.lock ./
-COPY project/slopario/backend/src ./src
+COPY projects/slopario/backend/Cargo.toml projects/slopario/backend/Cargo.lock ./
+COPY projects/slopario/backend/src ./src
 
 # Build the app
 RUN cargo build --release
