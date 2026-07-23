@@ -19,6 +19,8 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
+use tower_http::trace::TraceLayer;
+use tracing::{info, trace, warn, Span};
 
 use crate::game::start_game_loop;
 use crate::session::{SessionMap, create_session_map, generate_session_id};
@@ -55,21 +57,26 @@ pub struct AppState {
 
 /// Serviert das Host-Frontend (Display/Lobby) unter /host
 async fn serve_host() -> Html<&'static str> {
+    trace!("Serving /host frontend");
     Html(HOST_HTML)
 }
 
 /// Serviert das Client-Frontend (Controller/Joystick) unter /client
 async fn serve_client() -> Html<&'static str> {
+    trace!("Serving /client frontend");
     Html(CLIENT_HTML)
 }
 
 /// Erstellt eine neue Session und gibt die ID zurück.
+#[tracing::instrument(skip(state), fields(session_id))]
 pub async fn create_session_handler(
     State(state): State<AppState>,
     Query(query): Query<CreateSessionQuery>,
 ) -> Json<CreateSessionResponse> {
     let map_width = query.width.unwrap_or(1000);
     let map_height = query.height.unwrap_or(800);
+
+    trace!(map_width, map_height, "Creating new session");
 
     let session_id = generate_session_id();
     let session = Session::new(session_id.clone(), map_width, map_height);
@@ -80,7 +87,9 @@ pub async fn create_session_handler(
         sessions.insert(session_id.clone(), session);
     }
 
-    tracing::info!(
+    Span::current().record("session_id", &session_id);
+
+    info!(
         "Created new session: {} ({}x{})",
         session_id,
         map_width,
@@ -95,38 +104,53 @@ pub async fn create_session_handler(
 }
 
 /// Controller-WebSocket: /ws/controller/:session_id (any HTTP method)
+#[tracing::instrument(skip(ws, state), fields(session_id))]
 async fn ws_controller_handler(
     ws: WebSocketUpgrade,
     Path(session_id): Path<String>,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
+    trace!("WebSocket upgrade request for controller");
+    Span::current().record("session_id", &session_id);
     ws.on_upgrade(move |socket| handle_controller_with_session(socket, session_id, state))
 }
 
+#[tracing::instrument(skip(socket, state), fields(session_id))]
 async fn handle_controller_with_session(socket: WebSocket, session_id: String, state: AppState) {
+    Span::current().record("session_id", &session_id);
+    trace!("Looking up session for controller");
     let session = {
         let sessions = state.sessions.lock().await;
         sessions.get(&session_id).cloned()
     };
 
     match session {
-        Some(session) => handle_controller(socket, session).await,
+        Some(session) => {
+            trace!("Session found, starting controller handler");
+            handle_controller(socket, session).await;
+        }
         None => {
-            tracing::warn!("Session not found: {}", session_id);
+            warn!("Session not found: {}", session_id);
         }
     }
 }
 
 /// Display-WebSocket: /ws/view/:session_id (any HTTP method)
+#[tracing::instrument(skip(ws, state), fields(session_id))]
 async fn ws_display_handler(
     ws: WebSocketUpgrade,
     Path(session_id): Path<String>,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
+    trace!("WebSocket upgrade request for display");
+    Span::current().record("session_id", &session_id);
     ws.on_upgrade(move |socket| handle_display_with_session(socket, session_id, state))
 }
 
+#[tracing::instrument(skip(socket, state), fields(session_id))]
 async fn handle_display_with_session(socket: WebSocket, session_id: String, state: AppState) {
+    Span::current().record("session_id", &session_id);
+    trace!("Looking up session for display");
     let session = {
         let sessions = state.sessions.lock().await;
         sessions.get(&session_id).cloned()
@@ -134,10 +158,12 @@ async fn handle_display_with_session(socket: WebSocket, session_id: String, stat
 
     match session {
         Some(session_arc) => {
+            trace!("Session found, setting up display connection");
             let (map_width, map_height) = {
                 let session = session_arc.lock().await;
                 (session.map_width, session.map_height)
             };
+            trace!(map_width, map_height, "Display map size");
 
             let rx: broadcast::Receiver<GameState> = {
                 let mut session = session_arc.lock().await;
@@ -148,6 +174,7 @@ async fn handle_display_with_session(socket: WebSocket, session_id: String, stat
                 let mut session = session_arc.lock().await;
                 if !session.game_loop_started {
                     session.game_loop_started = true;
+                    trace!("Starting game loop for session");
                     drop(session);
                     start_game_loop(session_arc.clone());
                 }
@@ -156,7 +183,7 @@ async fn handle_display_with_session(socket: WebSocket, session_id: String, stat
             handle_display(socket, map_width, map_height, rx, session_arc).await;
         }
         None => {
-            tracing::warn!("Session not found: {}", session_id);
+            warn!("Session not found: {}", session_id);
         }
     }
 }
@@ -174,6 +201,7 @@ pub fn build_app() -> (Router, AppState) {
         .route("/ws/view/{session_id}", any(ws_display_handler))
         .route("/host", get(serve_host))
         .route("/client", get(serve_client))
+        .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
         .with_state(state.clone());
 
@@ -206,13 +234,13 @@ pub async fn run_default_server() {
         .await
         .expect(&format!("Failed to bind to port {}", PORT));
 
-    tracing::info!("Server running on http://{}", addr);
-    tracing::info!("Endpoints:");
-    tracing::info!("  GET /host                                  - Host/Lobby frontend");
-    tracing::info!("  GET /client                                - Client/Controller frontend");
-    tracing::info!("  GET /api/session[?width=1920&height=1080] - Create session");
-    tracing::info!("  GET /ws/controller/{{session_id}}          - Controller WebSocket");
-    tracing::info!("  GET /ws/view/{{session_id}}                - Display WebSocket");
+    info!("Server running on http://{}", addr);
+    info!("Endpoints:");
+    info!("  GET /host                                  - Host/Lobby frontend");
+    info!("  GET /client                                - Client/Controller frontend");
+    info!("  GET /api/session[?width=1920&height=1080] - Create session");
+    info!("  GET /ws/controller/{{session_id}}          - Controller WebSocket");
+    info!("  GET /ws/view/{{session_id}}                - Display WebSocket");
 
     axum::serve(listener, app).await.expect("Server failed");
 }

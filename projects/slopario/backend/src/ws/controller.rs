@@ -3,6 +3,7 @@ use futures::{SinkExt, StreamExt};
 use serde::Deserialize;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tracing::{info, trace, warn};
 
 use crate::player::Direction;
 use crate::session::Session;
@@ -15,6 +16,7 @@ struct ControllerInput {
 
 /// Sends a text line to the controller with newline delimiter.
 async fn send_line(sink: &mut futures::stream::SplitSink<WebSocket, Message>, line: &str) -> Result<(), ()> {
+    trace!("Sending line to controller: {}", line);
     let msg = Message::Text(format!("{}\n", line).into());
     sink.send(msg).await.map_err(|_| ())
 }
@@ -25,8 +27,9 @@ async fn send_line(sink: &mut futures::stream::SplitSink<WebSocket, Message>, li
 ///   - "lobby"   bei Verbindungsaufbau
 ///   - "ingame"  wenn das Spiel beginnt
 ///   - "message: [Text]" für Nachrichten (z.B. "message: rank 3")
+#[tracing::instrument(skip(socket, session))]
 pub async fn handle_controller(mut socket: WebSocket, session: Arc<Mutex<Session>>) {
-    tracing::info!("Controller connected");
+    info!("Controller WebSocket connected");
 
     // Controller bei der Session registrieren
     let player_id = {
@@ -36,12 +39,13 @@ pub async fn handle_controller(mut socket: WebSocket, session: Arc<Mutex<Session
         let color = random_color();
         let x = rand::random::<f64>() * session.map_width as f64;
         let y = rand::random::<f64>() * session.map_height as f64;
-        let player = crate::player::Player::new(player_id.clone(), x, y, color);
+        let player = crate::player::Player::new(player_id.clone(), x, y, color.clone());
+        trace!(%player_id, %x, %y, %color, "Creating new player for controller");
         session.players.push(Arc::new(Mutex::new(player)));
         player_id
     };
 
-    tracing::info!("Controller assigned player: {}", player_id);
+    info!("Controller assigned player: {}", player_id);
 
     // Erstelle mpsc-Channel für diese Controller-Verbindung
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
@@ -49,16 +53,19 @@ pub async fn handle_controller(mut socket: WebSocket, session: Arc<Mutex<Session
         let session = session.lock().await;
         // Sende "lobby" sofort
         let _ = tx.send("lobby\n".to_string());
-        // Registriere Sender in der Session
-        // (Session muss kurz freigegeben werden, da wir lock schon haben)
-        // Stattdessen: pushen nachdem lock released wurde
     }
     // Jetzt Sender registrieren (lock freigegeben)
     {
         let mut session = session.lock().await;
         // Alte Sender aufräumen (disconnected)
+        let before = session.controller_txs.len();
         session.controller_txs.retain(|s| !s.is_closed());
+        let removed = before - session.controller_txs.len();
+        if removed > 0 {
+            trace!(removed, "Cleaned up disconnected controller senders");
+        }
         session.controller_txs.push(tx);
+        trace!("Registered controller sender");
     }
 
     let (mut ws_sender, mut ws_receiver) = socket.split();
@@ -76,40 +83,51 @@ pub async fn handle_controller(mut socket: WebSocket, session: Arc<Mutex<Session
     while let Some(Ok(msg)) = ws_receiver.next().await {
         match msg {
             Message::Text(text) => {
+                trace!("Received text from controller: {}", text);
                 if let Ok(input) = serde_json::from_str::<ControllerInput>(&text) {
                     let session = session.lock().await;
                     for player in &session.players {
                         let mut player = player.lock().await;
                         if player.id == player_id {
-                            if let Some(dir) = input.direction {
-                                player.direction = Some(dir);
+                            if let Some(ref dir) = input.direction {
+                                trace!(x = dir.x, y = dir.y, "Updating direction");
+                                player.direction = Some(dir.clone());
                             }
                             if let Some(switch) = input.switch_color {
                                 if switch {
-                                    player.color = random_color();
+                                    let new_color = random_color();
+                                    trace!(old = %player.color, new = %new_color, "Switching color");
+                                    player.color = new_color;
                                 }
                             }
                             break;
                         }
                     }
+                } else {
+                    warn!("Failed to parse controller input: {}", text);
                 }
             }
             Message::Close(_) => {
-                tracing::info!("Controller {} disconnected", player_id);
+                info!("Controller {} disconnected", player_id);
                 break;
             }
-            _ => {}
+            _ => {
+                trace!("Ignored message from controller: {:?}", msg);
+            }
         }
     }
 
     send_task.abort();
+    trace!("Controller handler finished");
 }
 
 fn random_color() -> String {
-    format!(
+    let color = format!(
         "#{:02x}{:02x}{:02x}",
         rand::random::<u8>(),
         rand::random::<u8>(),
         rand::random::<u8>(),
-    )
+    );
+    trace!("Generated random color: {}", color);
+    color
 }
