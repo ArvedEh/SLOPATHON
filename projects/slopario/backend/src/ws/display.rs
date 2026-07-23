@@ -1,17 +1,21 @@
 use axum::extract::ws::{Message, WebSocket};
 use futures::StreamExt;
+use std::sync::Arc;
 use tokio::sync::broadcast;
+use tokio::sync::Mutex;
 
 use crate::game::{GameState, InitState};
+use crate::session::{Session, SessionState};
 
 /// Behandelt eine Display-WebSocket-Verbindung.
 /// Sendet zuerst die Init-Nachricht mit der Map-Größe,
-/// dann 30fps Game-State-Updates.
+/// wartet dann auf "start" vom Display, und streamt dann 30fps Game-State-Updates.
 pub async fn handle_display(
     mut socket: WebSocket,
     map_width: u32,
     map_height: u32,
     mut rx: broadcast::Receiver<GameState>,
+    session: Arc<Mutex<Session>>,
 ) {
     tracing::info!("Display connected");
 
@@ -22,7 +26,27 @@ pub async fn handle_display(
         return;
     }
 
-    // 2. Auf erste Game-State-Updates warten und streamen
+    // 2. Auf "start"-Kommando vom Display warten
+    loop {
+        match socket.next().await {
+            Some(Ok(Message::Text(text))) => {
+                if text.trim() == "start" {
+                    tracing::info!("Display started the game");
+                    let mut session = session.lock().await;
+                    session.state = SessionState::Running;
+                    session.broadcast_to_controllers("ingame");
+                    break;
+                }
+            }
+            Some(Ok(Message::Close(_))) | None => {
+                tracing::info!("Display disconnected before start");
+                return;
+            }
+            _ => {}
+        }
+    }
+
+    // 3. Game-State-Updates streamen
     loop {
         tokio::select! {
             result = rx.recv() => {
@@ -33,10 +57,7 @@ pub async fn handle_display(
                             break;
                         }
                     }
-                    Err(_) => {
-                        // Sender wurde gedropped
-                        break;
-                    }
+                    Err(_) => break,
                 }
             }
             msg = socket.next() => {

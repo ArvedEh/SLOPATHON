@@ -142,8 +142,8 @@ async fn handle_display_with_session(socket: WebSocket, session_id: String, stat
                 }
             }
 
-            // Behandle Display-Verbindung mit dem Receiver + Map-Größe
-            handle_display(socket, map_width, map_height, rx).await;
+            // Behandle Display-Verbindung mit dem Receiver + Map-Größe + Session
+            handle_display(socket, map_width, map_height, rx, session_arc).await;
         }
         None => {
             tracing::warn!("Session not found: {}", session_id);

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{Mutex, broadcast};
+use tokio::sync::{Mutex, broadcast, mpsc};
 use uuid::Uuid;
 
 use crate::food::{Food, create_mock_food};
@@ -23,6 +23,9 @@ pub struct Session {
     pub display_tx: Option<broadcast::Sender<GameState>>,
     pub player_count: u32,
     pub game_loop_started: bool,
+    pub next_food_id: u64,
+    /// Senders to send text lines to all connected controllers (lobby/ingame/message).
+    pub controller_txs: Vec<mpsc::UnboundedSender<String>>,
 }
 
 impl Session {
@@ -33,16 +36,30 @@ impl Session {
             .map(|p| Arc::new(Mutex::new(p)))
             .collect();
 
+        let food_count = (map_width * map_height / 50000).max(20) as usize;
+        let mut food = Vec::with_capacity(food_count);
+        for i in 0..food_count {
+            let margin = 10.0;
+            food.push(Food {
+                id: i as u64,
+                x: rand::random::<f64>() * (map_width as f64 - 2.0 * margin) + margin,
+                y: rand::random::<f64>() * (map_height as f64 - 2.0 * margin) + margin,
+                size: 5.0 + rand::random::<f64>() * 5.0,
+            });
+        }
+
         Self {
             id,
             state: SessionState::Waiting,
             players,
-            food: create_mock_food(),
+            food,
             map_width,
             map_height,
             display_tx: None,
             player_count: 0,
             game_loop_started: false,
+            next_food_id: food_count as u64,
+            controller_txs: Vec::new(),
         }
     }
 
@@ -55,6 +72,14 @@ impl Session {
             self.display_tx = Some(tx);
         }
         self.display_tx.as_ref().unwrap().subscribe()
+    }
+
+    /// Broadcastet eine Textzeile an alle verbundenen Controller.
+    pub fn broadcast_to_controllers(&self, line: &str) {
+        let msg = format!("{}\n", line);
+        for tx in &self.controller_txs {
+            let _ = tx.send(msg.clone());
+        }
     }
 
     pub fn to_game_state(&self) -> GameState {
