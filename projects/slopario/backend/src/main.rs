@@ -8,20 +8,21 @@ mod ws {
 }
 
 use axum::{
+    Json, Router,
     extract::{
-        ws::{WebSocket, WebSocketUpgrade},
         Path, Query, State,
+        ws::{WebSocket, WebSocketUpgrade},
     },
     response::IntoResponse,
     routing::get,
-    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
+use tower_http::cors::CorsLayer;
 use tracing_subscriber::EnvFilter;
 
-use crate::game::{start_game_loop, GameState};
-use crate::session::{create_session_map, generate_session_id, SessionMap};
+use crate::game::{GameState, start_game_loop};
+use crate::session::{SessionMap, create_session_map, generate_session_id};
 use crate::ws::controller::handle_controller;
 use crate::ws::display::handle_display;
 
@@ -65,7 +66,12 @@ async fn create_session(
         sessions.insert(session_id.clone(), session);
     }
 
-    tracing::info!("Created new session: {} ({}x{})", session_id, map_width, map_height);
+    tracing::info!(
+        "Created new session: {} ({}x{})",
+        session_id,
+        map_width,
+        map_height
+    );
 
     Json(CreateSessionResponse {
         session_id: session_id.clone(),
@@ -83,11 +89,7 @@ async fn ws_controller_handler(
     ws.on_upgrade(move |socket| handle_controller_with_session(socket, session_id, state))
 }
 
-async fn handle_controller_with_session(
-    socket: WebSocket,
-    session_id: String,
-    state: AppState,
-) {
+async fn handle_controller_with_session(socket: WebSocket, session_id: String, state: AppState) {
     let session = {
         let sessions = state.sessions.lock().await;
         sessions.get(&session_id).cloned()
@@ -110,11 +112,7 @@ async fn ws_display_handler(
     ws.on_upgrade(move |socket| handle_display_with_session(socket, session_id, state))
 }
 
-async fn handle_display_with_session(
-    socket: WebSocket,
-    session_id: String,
-    state: AppState,
-) {
+async fn handle_display_with_session(socket: WebSocket, session_id: String, state: AppState) {
     let session = {
         let sessions = state.sessions.lock().await;
         sessions.get(&session_id).cloned()
@@ -158,8 +156,7 @@ async fn main() {
     // Initialize tracing
     tracing_subscriber::fmt()
         .with_env_filter(
-            EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new("info")),
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
         .init();
 
@@ -171,6 +168,7 @@ async fn main() {
         .route("/api/session", get(create_session))
         .route("/ws/controller/{session_id}", get(ws_controller_handler))
         .route("/ws/view/{session_id}", get(ws_display_handler))
+        .layer(CorsLayer::permissive())
         .with_state(state);
 
     let addr = format!("0.0.0.0:{}", PORT);
@@ -184,7 +182,5 @@ async fn main() {
     tracing::info!("  GET /ws/controller/{{session_id}}          - Controller WebSocket");
     tracing::info!("  GET /ws/view/{{session_id}}                - Display WebSocket");
 
-    axum::serve(listener, app)
-        .await
-        .expect("Server failed");
+    axum::serve(listener, app).await.expect("Server failed");
 }
