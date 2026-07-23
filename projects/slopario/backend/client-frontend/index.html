@@ -86,6 +86,9 @@ transition: none;
         <div class="joystick-stick" id="joystickStick"></div>
     </div>
 </div>
+<div id="state-winner">
+  <div>Game over!</div>
+</div>
 
 <script>
 (function () {
@@ -111,14 +114,18 @@ transition: none;
     changeState(e.data)
   });
 
-  const states = ["state-not-connected", "state-lobby", "state-ingame"]
+  const states = ["state-not-connected", "state-lobby", "state-ingame", "state-winner"]
 
   function changeState(newState) {
     for(let state of states) {
         document.getElementById(state).classList.add("hidden")
     }
-    console.log('state-'+newState.trim())
-    document.getElementById('state-'+newState.trim()).classList.remove("hidden")
+    if (newState.startsWith("message")) {
+      document.getElementById("state-winner").classList.remove("hidden")
+    } else {
+      document.getElementById('state-'+newState.trim()).classList.remove("hidden")
+    }
+    
   }
 
 
